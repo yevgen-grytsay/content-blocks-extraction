@@ -47,12 +47,20 @@ $query = new DOMXPath($dom);
 //$nodes = iterator_to_array($query->query('//*[@is-content]'), false);
 
 $blocks = ContentBlock::createFromNodeList($query->query('//*[@is-content]'));
-
+//array_walk($blocks, function (ContentBlock $block) {
+////   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
+//    echo $block->getHtml(), PHP_EOL, PHP_EOL;
+////    echo (string) $block, PHP_EOL, PHP_EOL;
+//});
+//die();
 //var_dump($blocks);
+
+$titleClassifier = new DocumentTitleMatchClassifier($query->query('//title')->item(0)->textContent);
+$titleClassifier->process($blocks);
 
 $contentBlocks = [];
 $it = new CallbackFilterIterator(iterateThree($blocks), function (array $triplet) use (&$contentBlocks) {
-    if (!$triplet[1]->isEmpty() && classifyByDensity($triplet[0], $triplet[1], $triplet[2])) {
+    if ($triplet[1]->hasLabel(ContentBlock::LABEL_TITLE) || classifyByDensity($triplet[0], $triplet[1], $triplet[2])) {
         $contentBlocks[] = $triplet[1];
     }
     // TODO: add first and last if needed
@@ -61,8 +69,8 @@ iterator_to_array($it);
 //var_dump($contentBlocks);
 array_walk($contentBlocks, function (ContentBlock $block) {
 //   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
-//    echo $block->getHtml(), PHP_EOL, PHP_EOL;
-    echo (string) $block, PHP_EOL, PHP_EOL;
+    echo $block->getHtml(), PHP_EOL, PHP_EOL;
+//    echo (string) $block, PHP_EOL, PHP_EOL;
 });
 
 //$longTextNodes = new CallbackFilterIterator(new ArrayIterator($nodes), function (DOMNode $node) {
@@ -76,6 +84,7 @@ array_walk($contentBlocks, function (ContentBlock $block) {
 
 class ContentBlock
 {
+    const LABEL_TITLE = 'title';
     /**
      * @var \DOMElement
      */
@@ -88,6 +97,10 @@ class ContentBlock
      * @var float
      */
     private $textDensity;
+    /**
+     * @var array
+     */
+    private $labels = [];
 
     public static function createFromNodeList(DOMNodeList $nodes)
     {
@@ -111,15 +124,19 @@ class ContentBlock
 
     private function initDensities()
     {
-        $tokens = mb_split('\s+', $this->container->textContent);
-        $numWords = count($tokens);
+        // TODO: may lose whitespaces ($node->textContent)
+        $textContent = mb_ereg_replace('[\n\r]+', ' ', $this->container->textContent);
+
+        $tokens = mb_split('[^\p{L}\p{Nd}\p{Nl}\p{No}]', $textContent);
+        $numWords = 0;
 
         $numWrappedLines = 0;
         $lineLimit = 80;
         $sum = 0;
         $numWordsCurrentLine = 1;
-        foreach ($tokens as $word) {
-            $len = mb_strlen($word, 'utf-8');
+        foreach ($tokens as $token) {
+            $token = trim($token);
+            $len = mb_strlen($token, 'utf-8');
             if ($len > $lineLimit) {
                 $numWrappedLines++;
                 $numWordsCurrentLine = 0;
@@ -132,8 +149,11 @@ class ContentBlock
                 $sum = 0;
                 continue;
             }
-            $sum += $len;
-            ++$numWordsCurrentLine;
+            if ($this->isWord($token)) {
+                $numWords++;
+                $sum += $len;
+                ++$numWordsCurrentLine;
+            }
         }
 
         if ($numWrappedLines == 0) {
@@ -162,8 +182,13 @@ class ContentBlock
         }
         $numWords = 0;
         foreach ($nodes as $node) {
-            $words = mb_split('\s+', $node->textContent);
-            $numWords += count($words);
+            $tokens = mb_split('[^\p{L}\p{Nd}\p{Nl}\p{No}]', $node->textContent);
+            $numWords += array_reduce($tokens, function ($carry, $token) {
+                if ($this->isWord($token)) {
+                    $carry++;
+                }
+                return $carry;
+            }, 0);
         }
 
         return $numWords;
@@ -204,8 +229,30 @@ class ContentBlock
     {
         $text = preg_replace('#[\r\n]#u', '', $this->container->textContent);
 
-        return sprintf('[ld=%.2f, td=%.2f, img=%d, bl=%d, short:"%s"]',
-            $this->linkDensity, $this->textDensity, $this->getNumImages(), $this->getBlockLevel(), mb_substr($text, 0, 200, 'utf-8'));
+        return sprintf('[ld=%.2f, td=%.2f, img=%d, bl=%d, lbl=%s, short:"%s"]',
+            $this->linkDensity,
+            $this->textDensity,
+            $this->getNumImages(),
+            $this->getBlockLevel(),
+            implode(',', $this->labels),
+            mb_substr($text, 0, 200, 'utf-8')
+        );
+    }
+
+    public function addLabel($label)
+    {
+        if (!$this->hasLabel($label)) {
+            $this->labels[] = $label;
+        }
+    }
+
+    /**
+     * @param $label
+     * @return bool
+     */
+    public function hasLabel($label): bool
+    {
+        return in_array($label, $this->labels, true);
     }
 
     public function __debugInfo()
@@ -221,5 +268,145 @@ class ContentBlock
     private function getNumImages()
     {
         return $this->container->getElementsByTagName('img')->length;
+    }
+
+    private function isWord($token)
+    {
+        return mb_ereg_match('^[\p{L}\p{Nd}\p{Nl}\p{No}]+$', $token);
+    }
+}
+
+class DocumentTitleMatchClassifier {
+    private $potentialTitles = [];
+
+    const PAT_REMOVE_CHARACTERS = '[\?\!\.\-\:]+';
+
+    public function __construct($title)
+    {
+        if ($title) {
+
+            $title = mb_ereg_replace('[\x{00a0}\r\n]+', ' ', $title);
+            $title = mb_ereg_replace('[\']', '', $title);
+            $title = trim($title);
+            $title = mb_strtolower($title, 'utf-8');
+
+            if ($title) {
+                $potentialTitles[] = $title;
+
+                $part = $this->getLongestPart($title, "[ ]*[\|»|-][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+                $part = $this->getLongestPart($title, "[ ]*[\|»|:][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+                $part = $this->getLongestPart($title, "[ ]*[\|»|:\(\)][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+                $part = $this->getLongestPart($title, "[ ]*[\|»|:\(\)\-][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+                $part = $this->getLongestPart($title, "[ ]*[\|»|,|:\(\)\-][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+                $part = $this->getLongestPart($title, "[ ]*[\|»|,|:\(\)\-\u00a0][ ]*");
+                if ($part) {
+                    $potentialTitles[] = $part;
+                }
+
+                $this->addPotentialTitles($potentialTitles, $title, "[ ]+[\|][ ]+", 4);
+                $this->addPotentialTitles($potentialTitles, $title, "[ ]+[\-][ ]+", 4);
+
+
+                $this->potentialTitles[] = preg_replace('# - [^\-]+$#u', '', $title, 1);
+                $this->potentialTitles[] = preg_replace('#^[^\-]+ - #u', '', $title, 1);
+            }
+        }
+    }
+
+    /**
+     * @param ContentBlock[] $contentBlocks
+     * @return bool
+     */
+    public function process(array $contentBlocks)
+    {
+        if (!$this->potentialTitles) {
+            return false;
+        }
+
+        foreach ($contentBlocks as $cb) {
+            $text = $cb->getTextContent();
+
+            $text = mb_ereg_replace('[\x{00a0}\r\n]+', ' ', $text);
+            $text = mb_ereg_replace('[\']', '', $text);
+            $text = trim($text);
+            $text = mb_strtolower($text, 'utf-8');
+
+
+            if (in_array($text, $this->potentialTitles, true)) {
+                $cb->addLabel(ContentBlock::LABEL_TITLE);
+                break;
+            }
+
+            $text = mb_ereg_replace(static::PAT_REMOVE_CHARACTERS, '', $text);
+            $text = trim($text);
+            if (in_array($text, $this->potentialTitles, true)) {
+                $cb->addLabel(ContentBlock::LABEL_TITLE);
+                break;
+            }
+        }
+    }
+
+    public function getPotentialTitles()
+    {
+        return $this->potentialTitles;
+    }
+
+    private function addPotentialTitles(array $potentialTitles, $title, $pattern, $minWords)
+    {
+        $parts = mb_split($pattern, $title);
+        if (count($parts) === 1) {
+            return null;
+        }
+        foreach ($parts as $part) {
+            if (mb_strpos($part, '.com') !== false) {
+                continue;
+            }
+            $numWords = count(mb_split('[\b ]+', $part));
+            if ($numWords >= $minWords) {
+                $this->potentialTitles[] = $part;
+            }
+        }
+    }
+
+    private function getLongestPart($title, $pattern)
+    {
+        $parts = mb_split($pattern, $title);
+        if (count($parts) === 1) {
+            return null;
+        }
+
+        $longestNumWords = 0;
+        $longestPart = '';
+        foreach ($parts as $part) {
+            if (mb_strpos($part, '.com') !== false) {
+                continue;
+            }
+            $numWords = count(mb_split('[\b ]+', $part));
+            if ($numWords > $longestNumWords || mb_strlen($part, 'utf-8') > mb_strlen($longestPart, 'utf-8')) {
+                $longestNumWords = $numWords;
+                $longestPart = $part;
+            }
+        }
+
+        if (!$longestPart) {
+            return null;
+        } else {
+            return trim($longestPart);
+        }
     }
 }
