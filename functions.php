@@ -235,3 +235,23 @@ function unmarkAsContent(DOMNodeList $nodes)
         $node->removeAttribute('is-content');
     }
 }
+
+/**
+ * @param ContentBlock[] $blocks
+ * @return ContentBlock[]
+ */
+function cutEverythingBeforeMainTitle(array $blocks)
+{
+    $index = null;
+    foreach ($blocks as $i => $block) {
+        if ($block->hasLabel(ContentBlock::LABEL_TITLE)) {
+            $index = $i;
+            break;
+        }
+    }
+    if ($index !== null) {
+        $blocks = array_slice($blocks, $index);
+    }
+
+    return $blocks;
+}

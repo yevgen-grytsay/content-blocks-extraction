@@ -70,6 +70,7 @@ $it = new CallbackFilterIterator(iterateThree($blocks), function (array $triplet
 });
 iterator_to_array($it);
 //var_dump($contentBlocks);
+$contentBlocks = cutEverythingBeforeMainTitle($contentBlocks);
 array_walk($contentBlocks, function (ContentBlock $block) {
 //   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
     echo $block->getHtml(), PHP_EOL, PHP_EOL;
@@ -201,6 +202,17 @@ class ContentBlock
         return $numWords;
     }
 
+    public function getDocumentTitle()
+    {
+        if (strtolower($this->container->tagName) === 'h1') {
+            return $this->container->textContent;
+        }
+        $h1 = $this->container->getElementsByTagName('h1');
+        if ($h1->length === 1) {
+            return $h1->item(0)->textContent;
+        }
+    }
+
     /**
      * @return float
      */
@@ -283,7 +295,8 @@ class ContentBlock
     }
 }
 
-class DocumentTitleMatchClassifier {
+class DocumentTitleMatchClassifier
+{
     private $potentialTitles = [];
 
     const PAT_REMOVE_CHARACTERS = '[\?\!\.\-\:]+';
@@ -347,12 +360,7 @@ class DocumentTitleMatchClassifier {
 
         foreach ($contentBlocks as $cb) {
             $text = $cb->getTextContent();
-
-            $text = mb_ereg_replace('[\x{00a0}\r\n]+', ' ', $text);
-            $text = mb_ereg_replace('[\']', '', $text);
-            $text = trim($text);
-            $text = mb_strtolower($text, 'utf-8');
-
+            $text = $this->normalizeText($text);
 
             if (in_array($text, $this->potentialTitles, true)) {
                 $cb->addLabel(ContentBlock::LABEL_TITLE);
@@ -365,7 +373,24 @@ class DocumentTitleMatchClassifier {
                 $cb->addLabel(ContentBlock::LABEL_TITLE);
                 break;
             }
+
+            $text = $cb->getDocumentTitle();
+            $text = $this->normalizeText($text);
+            if ($text && $this->matchText($text)) {
+                $cb->addLabel(ContentBlock::LABEL_TITLE);
+                break;
+            }
         }
+    }
+
+    private function matchText($text)
+    {
+        foreach ($this->potentialTitles as $title) {
+            if (mb_strpos($text, $title, null, 'utf-8') === 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function getPotentialTitles()
@@ -415,5 +440,18 @@ class DocumentTitleMatchClassifier {
         } else {
             return trim($longestPart);
         }
+    }
+
+    /**
+     * @param $text
+     * @return string
+     */
+    private function normalizeText($text): string
+    {
+        $text = mb_ereg_replace('[\x{00a0}\r\n]+', ' ', $text);
+        $text = mb_ereg_replace('[\']', '', $text);
+        $text = trim($text);
+        $text = mb_strtolower($text, 'utf-8');
+        return $text;
     }
 }
