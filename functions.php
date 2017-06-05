@@ -189,6 +189,15 @@ function fIsMarkedAsContent()
  * @param DOMElement $el
  * @return bool
  */
+function isEmpty(DOMElement $el) {
+    $hasContent = strtolower($el->tagName) === 'img' || $el->getElementsByTagName('img')->length || $el->textContent;
+    return !($hasContent);
+}
+
+/**
+ * @param DOMElement $el
+ * @return bool
+ */
 function isMarkedAsContent(DOMElement $el)
 {
     return $el->hasAttribute('is-content') && (bool) $el->getAttribute('is-content');

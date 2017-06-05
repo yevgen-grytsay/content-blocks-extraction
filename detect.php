@@ -7,7 +7,7 @@ require_once __DIR__.'/functions.php';
 
 $dom = new DOMDocument();
 //@$dom->loadHTML(file_get_contents(__DIR__.'/example.html'));
-$html = file_get_contents(__DIR__ . '/nytimes_1.html');
+$html = file_get_contents(__DIR__ . '/bbc_1.html');
 $tidy = tidy_parse_string($html);
 $tidy->cleanRepair();
 $html = $tidy->value;
@@ -21,17 +21,8 @@ $nodelBlacklist = explode(',', 'meta,link,style,script');
 
 removeNodes($dom, filterByNodeType([XML_COMMENT_NODE]));
 removeNodes($dom, fFilterByTags($nodelBlacklist));
-//echo $dom->saveHTML(); die();
-//removeNodes($dom->getElementsByTagName('head')->item(0), orFilter(filterByNodeType([XML_COMMENT_NODE]), fFilterByTags($nodelBlacklist)));
-//foreach ($nodes as $el) {
-//    if ($el instanceof DOMElement) {
-//        if (in_array(strtolower($el->tagName), $nodelBlacklist, true)) {
-//            $el->parentNode->removeChild($el);
-//        }
-//    }
-//}
 
-$ignoreList = explode(',', 'button,form');
+$ignoreList = explode(',', 'button,form,nav');
 
 /** @var DOMElement $el */
 $filter = andFilter(fFilterElement(), fNot(fFilterByTags($ignoreList)));
@@ -61,9 +52,10 @@ $blocks = ContentBlock::createFromNodeList($query->query('//*[@is-content]'));
 
 $contentBlocks = [];
 $it = new CallbackFilterIterator(iterateThree($blocks), function (array $triplet) use (&$contentBlocks) {
-    if (classifyByDensity($triplet[0], $triplet[1], $triplet[2])) {
+    if (!$triplet[1]->isEmpty() && classifyByDensity($triplet[0], $triplet[1], $triplet[2])) {
         $contentBlocks[] = $triplet[1];
     }
+    // TODO: add first and last if needed
 });
 iterator_to_array($it);
 //var_dump($contentBlocks);
@@ -119,14 +111,14 @@ class ContentBlock
 
     private function initDensities()
     {
-        $words = mb_split('\s+', $this->container->textContent);
-        $numWords = count($words);
+        $tokens = mb_split('\s+', $this->container->textContent);
+        $numWords = count($tokens);
 
         $numWrappedLines = 0;
         $lineLimit = 80;
         $sum = 0;
         $numWordsCurrentLine = 1;
-        foreach ($words as $word) {
+        foreach ($tokens as $word) {
             $len = mb_strlen($word, 'utf-8');
             if ($len > $lineLimit) {
                 $numWrappedLines++;
@@ -219,6 +211,11 @@ class ContentBlock
     public function __debugInfo()
     {
         return [$this->__toString()];
+    }
+
+    public function isEmpty()
+    {
+        return isEmpty($this->container);
     }
 
     private function getNumImages()
