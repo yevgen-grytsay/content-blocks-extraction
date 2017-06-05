@@ -68,7 +68,9 @@ $it = new CallbackFilterIterator(iterateThree($blocks), function (array $triplet
 iterator_to_array($it);
 //var_dump($contentBlocks);
 array_walk($contentBlocks, function (ContentBlock $block) {
-   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
+//   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
+//    echo $block->getHtml(), PHP_EOL, PHP_EOL;
+    echo (string) $block, PHP_EOL, PHP_EOL;
 });
 
 //$longTextNodes = new CallbackFilterIterator(new ArrayIterator($nodes), function (DOMNode $node) {
@@ -196,16 +198,31 @@ class ContentBlock
         return $this->container->textContent;
     }
 
+    public function getHtml()
+    {
+        return $this->container->ownerDocument->saveHTML($this->container);
+    }
+
+    public function getBlockLevel()
+    {
+        return substr_count($this->container->getNodePath(), '/') - 1;
+    }
+
     public function __toString()
     {
         $text = preg_replace('#[\r\n]#u', '', $this->container->textContent);
 
-        return sprintf('[ld=%.2f, td=%.2f, short:"%s"]',
-            $this->linkDensity, $this->textDensity, mb_substr($text, 0, 200, 'utf-8'));
+        return sprintf('[ld=%.2f, td=%.2f, img=%d, bl=%d, short:"%s"]',
+            $this->linkDensity, $this->textDensity, $this->getNumImages(), $this->getBlockLevel(), mb_substr($text, 0, 200, 'utf-8'));
     }
 
     public function __debugInfo()
     {
         return [$this->__toString()];
+    }
+
+    private function getNumImages()
+    {
+        return $this->container->getElementsByTagName('img')->length;
     }
 }
