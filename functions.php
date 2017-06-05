@@ -160,11 +160,11 @@ function iterate($nodes, callable $filter)
 }
 
 /**
- * @param Iterator $items
+ * @param Iterator|array $items
  * @param callable $predicate
  * @return bool
  */
-function all(Iterator $items, callable $predicate)
+function all($items, callable $predicate)
 {
     foreach ($items as $item) {
         if (!$predicate($item)) {
@@ -214,8 +214,9 @@ function markContent(DOMElement $el)
 function isContent(DOMElement $el)
 {
     $contentTags = explode(',', 'a,span,i,b,u,p,h1,h2,h3,h4,h5,h6,td,sub,sup,img');
-    if ($el->childNodes->length) {
-        $isContent = all(iterate($el->childNodes, fFilterElement()), fIsMarkedAsContent());
+    $childElements = iterator_to_array(iterate($el->childNodes, fFilterElement()));
+    if ($childElements) {
+        $isContent = all($childElements, fIsMarkedAsContent());
     } else {
         $isContent = in_array(strtolower($el->tagName), $contentTags, true);
     }
