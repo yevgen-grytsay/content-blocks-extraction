@@ -44,9 +44,12 @@ foreach (iterateDeepFirst($dom->getElementsByTagName('body')->item(0), $filter) 
 
 
 $query = new DOMXPath($dom);
-//$nodes = iterator_to_array($query->query('//*[@is-content]'), false);
+$nodes = iterator_to_array($query->query('//*[@is-content]'), false);
+$nodes = array_filter($nodes, function (DOMElement $el) {
+    return !in_array(strtolower($el->tagName), ['li'], true);
+});
 
-$blocks = ContentBlock::createFromNodeList($query->query('//*[@is-content]'));
+$blocks = ContentBlock::createFromNodeList($nodes);
 //array_walk($blocks, function (ContentBlock $block) {
 ////   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
 //    echo $block->getHtml(), PHP_EOL, PHP_EOL;
@@ -102,7 +105,11 @@ class ContentBlock
      */
     private $labels = [];
 
-    public static function createFromNodeList(DOMNodeList $nodes)
+    /**
+     * @param DOMNodeList|DOMElement[] $nodes
+     * @return array
+     */
+    public static function createFromNodeList($nodes)
     {
         $blocks = [];
         foreach ($nodes as $node) {

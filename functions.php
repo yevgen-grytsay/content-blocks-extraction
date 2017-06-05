@@ -219,6 +219,11 @@ function isContent(DOMElement $el)
         $isContent = all($childElements, fIsMarkedAsContent());
     } else {
         $isContent = in_array(strtolower($el->tagName), $contentTags, true);
+        if (strtolower($el->tagName) !== 'img') {
+            $text = $el->textContent;
+            $clean = mb_ereg_replace('[\s\r\n]+', ' ', $text);
+            $isContent = $isContent && mb_strlen(trim($clean));
+        }
     }
     return $isContent;
 }
