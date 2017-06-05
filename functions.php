@@ -255,3 +255,23 @@ function cutEverythingBeforeMainTitle(array $blocks)
 
     return $blocks;
 }
+
+/**
+ * @param ContentBlock[] $blocks
+ * @return ContentBlock[]
+ */
+function trimArticle(array $blocks)
+{
+    /** @var ContentBlock[] $blocks */
+    $contentIndex = null;
+    $blocks = array_reverse($blocks);
+    foreach ($blocks as $i => $content) {
+        if ($content->dom->getElementsByTagName('p')->length !== 0) {
+            $contentIndex = $i;
+            break;
+        }
+    }
+    $blocks = array_slice($blocks, $contentIndex);
+
+    return array_reverse($blocks);
+}

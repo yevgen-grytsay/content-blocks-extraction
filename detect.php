@@ -71,6 +71,7 @@ $it = new CallbackFilterIterator(iterateThree($blocks), function (array $triplet
 iterator_to_array($it);
 //var_dump($contentBlocks);
 $contentBlocks = cutEverythingBeforeMainTitle($contentBlocks);
+$contentBlocks = trimArticle($contentBlocks);
 array_walk($contentBlocks, function (ContentBlock $block) {
 //   echo $block->getTextContent(), PHP_EOL, PHP_EOL;
     echo $block->getHtml(), PHP_EOL, PHP_EOL;
@@ -85,7 +86,10 @@ array_walk($contentBlocks, function (ContentBlock $block) {
 //});
 
 
-
+/**
+ * Class ContentBlock
+ * @param \DOMElement $dom
+ */
 class ContentBlock
 {
     const LABEL_TITLE = 'title';
@@ -93,6 +97,10 @@ class ContentBlock
      * @var \DOMElement
      */
     private $container;
+    /**
+     * @var \DOMElement
+     */
+    private $fragment;
     /**
      * @var float
      */
@@ -127,6 +135,8 @@ class ContentBlock
     public function __construct(DOMElement $container)
     {
         $this->container = $container;
+        $this->fragment = $container->ownerDocument->createElement('div');
+        $this->fragment->appendChild($container);
         $this->initDensities();
     }
 
@@ -293,6 +303,14 @@ class ContentBlock
     {
         return mb_ereg_match('^[\p{L}\p{Nd}\p{Nl}\p{No}]+$', $token);
     }
+
+    public function __get($name)
+    {
+        if ($name === 'dom') {
+            return $this->fragment;
+        }
+        throw new BadMethodCallException();
+    }
 }
 
 class DocumentTitleMatchClassifier
@@ -359,7 +377,7 @@ class DocumentTitleMatchClassifier
         }
 
         foreach ($contentBlocks as $cb) {
-            $text = $cb->getTextContent();
+            $text = $cb->getDocumentTitle();
             $text = $this->normalizeText($text);
 
             if (in_array($text, $this->potentialTitles, true)) {
@@ -374,7 +392,7 @@ class DocumentTitleMatchClassifier
                 break;
             }
 
-            $text = $cb->getDocumentTitle();
+
             $text = $this->normalizeText($text);
             if ($text && $this->matchText($text)) {
                 $cb->addLabel(ContentBlock::LABEL_TITLE);
